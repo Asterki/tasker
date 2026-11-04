@@ -4047,3 +4047,29 @@ a:hover {
     display: none;
   }
 }
+
+/* ── Mobile refinements ──────────────────────────────────────────────────── */
+
+/* The filter bar inside the Tasks view already carries search on mobile. */
+.app--mobile .topbar__left {
+  display: none;
+}
+
+/* Details open as an edge-to-edge sheet while staying inside the viewport. */
+.app--mobile .hud__panel {
+  position: fixed;
+  top: calc(var(--topbar-height) + 8px);
+  left: var(--space-sm);
+  right: var(--space-sm);
+  width: auto;
+  max-width: none;
+  max-height: calc(100dvh - var(--topbar-height) - var(--tabbar-height) - 24px);
+  overflow-y: auto;
+}
+
+@media (max-width: 860px) {
+  .hud__panel {
+    max-width: calc(100vw - 2 * var(--space-sm));
+  }
+}
+

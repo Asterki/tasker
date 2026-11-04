@@ -49,7 +49,6 @@ export function App() {
     categories,
     projects,
     settings,
-    updateSettings,
     createCategory,
     updateCategory,
     deleteCategory,
@@ -278,13 +277,8 @@ export function App() {
     <CelebrationProvider>
       <div className={`app${isMobile ? ' app--mobile' : ' app--desktop'}`}>
         <TopBar
-          theme={settings.theme}
-          onToggleTheme={() =>
-            updateSettings({ theme: settings.theme === 'nordic-light' ? 'nordic-dark' : 'nordic-light' })
-          }
           onFocusSearch={() => requestFocus('search')}
           onFocusQuickAdd={() => requestFocus('quickadd')}
-          onOpenManual={() => setManualOpen(true)}
         />
 
         <div className="app__body">

@@ -5,19 +5,15 @@
  * logo or window chrome — the workspace itself carries the identity.
  */
 
-import { FiHelpCircle, FiMoon, FiPlus, FiSearch, FiSun } from 'react-icons/fi';
-import type { Settings } from '../domain/types';
+import { FiPlus, FiSearch } from 'react-icons/fi';
 import { ProgressHud } from './ProgressHud';
 
 interface TopBarProps {
-  theme: Settings['theme'];
-  onToggleTheme: () => void;
   onFocusSearch: () => void;
   onFocusQuickAdd: () => void;
-  onOpenManual: () => void;
 }
 
-export function TopBar({ theme, onToggleTheme, onFocusSearch, onFocusQuickAdd, onOpenManual }: TopBarProps) {
+export function TopBar({ onFocusSearch, onFocusQuickAdd }: TopBarProps) {
   return (
     <header className="topbar">
       <div className="topbar__left">
@@ -30,18 +26,6 @@ export function TopBar({ theme, onToggleTheme, onFocusSearch, onFocusQuickAdd, o
 
       <div className="topbar__right">
         <ProgressHud />
-        <button
-          type="button"
-          className="icon-button"
-          onClick={onToggleTheme}
-          title={theme === 'nordic-light' ? 'Switch to dark' : 'Switch to light'}
-          aria-label="Toggle theme"
-        >
-          {theme === 'nordic-light' ? <FiMoon aria-hidden="true" /> : <FiSun aria-hidden="true" />}
-        </button>
-        <button type="button" className="icon-button" onClick={onOpenManual} title="User manual" aria-label="User manual">
-          <FiHelpCircle aria-hidden="true" />
-        </button>
         <button type="button" className="button button--primary" onClick={onFocusQuickAdd}>
           <FiPlus aria-hidden="true" />
           Add task
