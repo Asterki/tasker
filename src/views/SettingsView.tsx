@@ -3,9 +3,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { FiLock, FiTrendingUp } from 'react-icons/fi';
-import type { BackupFile, Category, Settings } from '../domain/types';
-import { formatDateShort, todayISO } from '../domain/date';
+import { FiBell, FiLock, FiTrendingUp } from 'react-icons/fi';
+import type { BackupFile, Category, NotificationSettings, Settings } from '../domain/types';
+import {
+  deviceTimezone,
+  formatDateShort,
+  formatInTimezone,
+  formatTime,
+  isValidTimezone,
+  todayISO,
+} from '../domain/date';
 import { completionsByDay, currentStreak, levelForXp, ACHIEVEMENTS } from '../domain/progress';
 import { CATEGORY_COLORS, useTasker } from '../state/store';
 import {
@@ -17,6 +24,15 @@ import {
   syncNow,
 } from '../sync/engine';
 import { NewSyncSpaceError, type SyncInfo, type SyncStatus } from '../sync/types';
+import {
+  getNotificationStatus,
+  subscribeNotifications,
+  syncNotificationsNow,
+  testNotification,
+  type NotificationStatus,
+} from '../notifications/engine';
+import { allDaySlots } from '../notifications/schedule';
+import { isValidTopic, normalizeNtfyUrl } from '../notifications/ntfy';
 
 interface SettingsViewProps {
   onOpenManual: () => void;
@@ -53,11 +69,86 @@ export function SettingsView({ onOpenManual }: SettingsViewProps) {
   const [syncBusy, setSyncBusy] = useState(false);
   const [confirmCreate, setConfirmCreate] = useState(false);
 
+  const [notifyStatus, setNotifyStatus] = useState<NotificationStatus>(getNotificationStatus);
+  const [notifyBusy, setNotifyBusy] = useState(false);
+
   useEffect(() => {
     const unsubscribe = subscribeSync(setSyncStatus);
     void getSyncInfo().then(setSyncInfo);
     return unsubscribe;
   }, []);
+
+  useEffect(() => subscribeNotifications(setNotifyStatus), []);
+
+  const timezones = useMemo(() => {
+    const fallback = [
+      'UTC',
+      'America/New_York',
+      'America/Chicago',
+      'America/Denver',
+      'America/Los_Angeles',
+      'America/Mexico_City',
+      'Europe/London',
+      'Europe/Berlin',
+      'Europe/Madrid',
+      'Asia/Tokyo',
+      'Asia/Kolkata',
+      'Australia/Sydney',
+    ];
+    let supported: string[] = [];
+    try {
+      supported =
+        (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.(
+          'timeZone',
+        ) ?? [];
+    } catch {
+      /* older browser: use the short list */
+    }
+    return [...new Set([deviceTimezone(), 'UTC', ...(supported.length > 0 ? supported : fallback)])].sort();
+  }, []);
+
+  const timezoneValid = isValidTimezone(settings.timezone);
+  const allDayTimes = allDaySlots(settings.notifications.allDayCount);
+  const notificationTargetValid =
+    Boolean(normalizeNtfyUrl(settings.notifications.serverUrl)) &&
+    isValidTopic(settings.notifications.topic);
+
+  function patchNotifications(partial: Partial<NotificationSettings>) {
+    updateSettings({ notifications: { ...settings.notifications, ...partial } });
+  }
+
+  async function handleTestNotification() {
+    setNotifyBusy(true);
+    try {
+      await testNotification(settings);
+      setStatus({
+        tone: 'ok',
+        text: 'Test notification published. Check the ntfy app subscribed to your topic.',
+      });
+    } catch (error) {
+      setStatus({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Could not send the test notification.',
+      });
+    } finally {
+      setNotifyBusy(false);
+    }
+  }
+
+  async function handleRefreshNotifications() {
+    setNotifyBusy(true);
+    await syncNotificationsNow(settings, tasks, projects);
+    const next = getNotificationStatus();
+    setNotifyBusy(false);
+    setStatus(
+      next.error
+        ? { tone: 'error', text: next.error }
+        : {
+            tone: 'ok',
+            text: `Reminder schedule refreshed · ${next.scheduled} armed for the next two days.`,
+          },
+    );
+  }
 
   const handleConnect = async (allowCreate: boolean) => {
     setSyncBusy(true);
@@ -463,6 +554,164 @@ export function SettingsView({ onOpenManual }: SettingsViewProps) {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="card">
+        <h2 className="card__title">
+          <FiBell aria-hidden="true" /> Notifications
+        </h2>
+        <p className="card__hint">
+          Tasker publishes reminders straight to <a href="https://ntfy.sh" target="_blank" rel="noreferrer">ntfy</a>.
+          Install the ntfy app on your phone or desktop and subscribe to the same topic. Tasks with a
+          time remind you at that exact time; tasks with a date but no time use the per-day schedule
+          below.
+        </p>
+
+        <div className="card__row">
+          <label className="switch switch--boxed">
+            <input
+              type="checkbox"
+              checked={settings.notifications.enabled}
+              onChange={(event) => patchNotifications({ enabled: event.target.checked })}
+            />
+            <span>Enable ntfy reminders</span>
+          </label>
+
+          <label className="field">
+            <span className="field__label">Time zone</span>
+            <div className="field__row">
+              <input
+                className="input"
+                list="tasker-timezones"
+                value={settings.timezone}
+                onChange={(event) => updateSettings({ timezone: event.target.value })}
+                placeholder="Europe/Madrid"
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                className="button"
+                onClick={() => updateSettings({ timezone: deviceTimezone() })}
+              >
+                Device
+              </button>
+            </div>
+            <datalist id="tasker-timezones">
+              {timezones.map((zone) => (
+                <option key={zone} value={zone} />
+              ))}
+            </datalist>
+            <span className="notification-hint">
+              {timezoneValid
+                ? `Now: ${formatInTimezone(Date.now(), settings.timezone)}`
+                : 'Unknown zone — use an IANA name such as Europe/Madrid.'}
+            </span>
+          </label>
+
+          <label className="field">
+            <span className="field__label">All-day reminders</span>
+            <select
+              className="input"
+              value={settings.notifications.allDayCount}
+              onChange={(event) =>
+                patchNotifications({ allDayCount: Number(event.target.value) })
+              }
+            >
+              {[1, 2, 3, 4, 5].map((count) => (
+                <option key={count} value={count}>
+                  {count}× per day
+                </option>
+              ))}
+            </select>
+            <span className="notification-hint">At {allDayTimes.map(formatTime).join(', ')}</span>
+          </label>
+        </div>
+
+        <div className="sync-form">
+          <label className="field">
+            <span className="field__label">ntfy server</span>
+            <input
+              className="input"
+              type="url"
+              value={settings.notifications.serverUrl}
+              onChange={(event) => patchNotifications({ serverUrl: event.target.value })}
+              placeholder="https://ntfy.sh"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </label>
+          <label className="field">
+            <span className="field__label">Topic</span>
+            <input
+              className="input"
+              value={settings.notifications.topic}
+              onChange={(event) => patchNotifications({ topic: event.target.value })}
+              placeholder="tasker-8f3k2m"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </label>
+          <label className="field">
+            <span className="field__label">Access token · optional</span>
+            <input
+              className="input"
+              type="password"
+              value={settings.notifications.token}
+              onChange={(event) => patchNotifications({ token: event.target.value })}
+              placeholder="tk_…"
+              autoComplete="new-password"
+            />
+          </label>
+        </div>
+
+        <p className="card__hint">
+          The topic works like a password. Use a long random topic, or self-host ntfy and require an
+          access token. Reminders are armed two days ahead and refreshed whenever Tasker opens, so
+          longer-range tasks need the app to be opened occasionally. The token is included in JSON
+          backups and encrypted sync.
+        </p>
+
+        <div className="notification-status">
+          <span>
+            {notifyStatus.state === 'scheduling'
+              ? 'Scheduling reminders…'
+              : notifyStatus.state === 'error'
+                ? 'Reminder delivery needs attention'
+                : !settings.notifications.enabled
+                  ? 'Reminders are off'
+                  : !notificationTargetValid
+                    ? 'Add a valid ntfy server and topic to start'
+                    : notifyStatus.scheduled > 0
+                      ? `${notifyStatus.scheduled} reminder${notifyStatus.scheduled === 1 ? '' : 's'} armed for the next two days`
+                      : 'No upcoming reminders in the next two days'}
+          </span>
+          {notifyStatus.lastSyncAt > 0 && (
+            <span className="muted">
+              Refreshed {new Date(notifyStatus.lastSyncAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+        {notifyStatus.error && <p className="notification-error">{notifyStatus.error}</p>}
+
+        <div className="card__actions">
+          <button
+            type="button"
+            className="button button--primary"
+            onClick={() => void handleTestNotification()}
+            disabled={notifyBusy || !notificationTargetValid}
+          >
+            Send test notification
+          </button>
+          <button
+            type="button"
+            className="button"
+            onClick={() => void handleRefreshNotifications()}
+            disabled={notifyBusy}
+          >
+            Refresh schedule
+          </button>
+        </div>
       </div>
 
       <div className="card">

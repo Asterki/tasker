@@ -46,6 +46,7 @@ import {
   loadSyncRuntime,
   registerApplyHandler,
 } from '../sync/engine';
+import { requestNotificationSync, resetNotificationSchedule } from '../notifications/engine';
 
 export const PROJECT_COLORS = [
   '#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff',
@@ -54,7 +55,7 @@ export const PROJECT_COLORS = [
 
 export const CATEGORY_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#39c5cf'];
 
-const BACKUP_VERSION = 3;
+const BACKUP_VERSION = 4;
 
 export interface NewTaskInput {
   title: string;
@@ -211,6 +212,13 @@ export function TaskerProvider({ children }: { children: ReactNode }) {
       registerApplyHandler(null);
     };
   }, []);
+
+  // Reminders are derived from tasks + notification settings. Whenever either
+  // changes, reconcile the ntfy schedule in the background (debounced).
+  useEffect(() => {
+    if (!ready) return;
+    requestNotificationSync(settings, tasks, projects);
+  }, [ready, settings, tasks, projects]);
 
   /** Walks the subtask tree below `id`, breadth-first. */
   const descendantIds = useCallback((id: string): string[] => {
@@ -478,6 +486,7 @@ export function TaskerProvider({ children }: { children: ReactNode }) {
         tags: input.tags ?? [],
         lane: input.lane ?? '',
         recurrence: input.recurrence ?? null,
+        reminder: true,
         completed: false,
         completedAt: null,
         seriesId: createId('ser'),
@@ -669,14 +678,13 @@ export function TaskerProvider({ children }: { children: ReactNode }) {
     if (await getSyncInfo()) {
       throw new Error('Disconnect sync before restoring a backup.');
     }
+    await resetNotificationSchedule();
     await clearAll();
 
     const restoredCategories = backup.categories ?? [];
     const restoredProjects = backup.projects ?? [];
     const restoredPlaces = backup.places ?? [];
     const restoredTasks = backup.tasks ?? [];
-    // v1/v2 backups may still carry reminder settings; normalizeSettings drops
-    // the retired keys so they never reach the v3 store.
     const restoredSettings = normalizeSettings(backup.settings);
 
     await db.categories.putMany(restoredCategories);
@@ -698,13 +706,14 @@ export function TaskerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetEverything = useCallback(async () => {
+    await resetNotificationSchedule();
     await disconnectSync();
     await clearAll();
     setCategories([]);
     setProjects([]);
     setPlaces([]);
     setTasks([]);
-    setSettings({ ...DEFAULT_SETTINGS });
+    setSettings(normalizeSettings({}));
   }, []);
 
   const value = useMemo<TaskerContextValue>(

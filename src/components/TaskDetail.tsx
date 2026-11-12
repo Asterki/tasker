@@ -30,6 +30,7 @@ export function TaskDetail({ task, onClose, onOpenTask }: TaskDetailProps) {
     categories,
     projects,
     places,
+    settings,
     tasks,
     updateTask,
     deleteTask,
@@ -241,6 +242,28 @@ export function TaskDetail({ task, onClose, onOpenTask }: TaskDetailProps) {
               onChange={(event) => patchEndTime(event.target.value || null)}
             />
           </div>
+        </div>
+
+        <div className="field">
+          <span className="field__label">Reminder</span>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={task.reminder !== false}
+              disabled={!task.date}
+              onChange={(event) => patch({ reminder: event.target.checked })}
+            />
+            <span>
+              {!task.date
+                ? 'Add a date to schedule a reminder'
+                : task.allDay
+                  ? `${settings.notifications.allDayCount}× per day · ${settings.timezone}`
+                  : task.time
+                    ? `At ${formatTime(task.time)} · ${settings.timezone}`
+                    : `At task time · ${settings.timezone}`}
+              {task.date && !settings.notifications.enabled ? ' · enable ntfy in Settings' : ''}
+            </span>
+          </label>
         </div>
 
         <label className="field">

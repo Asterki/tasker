@@ -47,6 +47,8 @@ export function entityPayload(kind: EntityKind, value: unknown): unknown {
       defaultProjectId: settings.defaultProjectId,
       soundEnabled: settings.soundEnabled,
       hapticsEnabled: settings.hapticsEnabled,
+      timezone: settings.timezone,
+      notifications: settings.notifications,
       progress: settings.progress,
     };
   }

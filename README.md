@@ -27,6 +27,7 @@ encrypted changes in the background.
 | Feedback | Particle bursts at the checkbox, optional chime, haptic patterns, and toasts — all respecting `prefers-reduced-motion` |
 | Storage | IndexedDB, fully offline, JSON export / import / reset |
 | Sync | Optional end-to-end encrypted relay sync across devices (your own server), including XP, streaks and achievements |
+| Reminders | ntfy notifications with scheduled delivery, IANA timezone support, exact-time reminders, and 1–5 reminders/day for tasks that only have a date |
 | PWA | Installable, custom `sw.js`, offline-first caching |
 
 ---
@@ -118,6 +119,33 @@ match.
 Losing the passphrase means the sync space cannot be recovered — there is no
 account and no reset. Export a JSON backup as well if the data matters.
 
+### Notifications with ntfy
+
+Reminders are delivered by [ntfy](https://ntfy.sh), not by a Vercel function or
+`web-push`/VAPID. This keeps the static deployment intact and works while the
+app is closed: ntfy's own Android, iOS or desktop app receives the notification.
+
+1. Install the ntfy app and subscribe to a topic. On ntfy.sh, use a long random
+   topic — the topic is effectively the password.
+2. Open **Settings → Notifications**, enable reminders, and enter the ntfy server
+   and topic. Add an access token if your server requires one.
+3. Choose the **time zone** Tasker should use. It defaults to the device zone and
+   is stored in IndexedDB with the rest of your settings.
+4. Choose how many reminders per day an all-day task should produce (1–5). Timed
+   tasks always remind at their exact time.
+5. Use **Send test notification** to verify the topic.
+
+Tasker publishes scheduled messages with ntfy sequence IDs, so editing,
+completing or deleting a task replaces or cancels the pending notification.
+Because ntfy limits scheduled delivery (three days by default on ntfy.sh), the
+app arms a rolling two-day window whenever it launches, regains focus, comes
+back online, or every six hours while open. Raise `message-delay-limit` on a
+self-hosted ntfy server if you want a longer window.
+
+The ntfy server sees task titles and times in plaintext. Self-host ntfy if that
+matters, and protect the topic with auth. The optional token is stored in
+IndexedDB, included in encrypted sync, and present in JSON backups.
+
 ---
 
 ## Architecture
@@ -140,6 +168,7 @@ tasker/
 │   ├── docs/UserManual.tsx    in-app Markdown manual renderer
 │   ├── domain/                types, date maths, recurrence, NL parser,
 │   │                          suggestions, progress/XP maths
+│   ├── notifications/         ntfy publisher, timezone-aware schedule, engine
 │   ├── pwa/serviceWorker.ts   production service-worker registration
 │   ├── state/                 React context store, hooks, navigation model
 │   ├── sync/                  crypto, HLC clock, recorder, engine
@@ -167,6 +196,10 @@ tasker/
 - **Plain CSS with tokens.** The palette from `DESIGN.md` is expressed as CSS
   custom properties, so the light and dark themes stay in lockstep without a
   build-time CSS framework.
+- **Reminders are device-computed, server-delivered.** The browser derives the
+  next two days of reminders in your chosen IANA time zone and publishes them to
+  ntfy with deterministic sequence IDs. No task data is mirrored to Vercel, and
+  editing or completing a task replaces or cancels the waiting message.
 - **Animation never blocks state.** Completing a task fires the burst
   immediately and commits ~220ms later, so the reward feels instant while the row
   still gets to animate. The celebration layer is `position: fixed` and

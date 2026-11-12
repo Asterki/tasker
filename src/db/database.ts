@@ -7,12 +7,13 @@
  * separate stores so domain records stay clean.
  */
 
-import type { Category, Place, Project, Settings, Tag, Task } from '../domain/types';
-import { DEFAULT_SETTINGS } from '../domain/types';
+import type { Category, NotificationSettings, Place, Project, Settings, Tag, Task } from '../domain/types';
+import { DEFAULT_NOTIFICATIONS, DEFAULT_SETTINGS } from '../domain/types';
+import { deviceTimezone, isValidTimezone } from '../domain/date';
 
 const DB_NAME = 'tasker';
-/** v2 added `categories` and multi-day fields; v3 removed push; v4 added sync. */
-const DB_VERSION = 4;
+/** v2 added `categories` and multi-day fields; v3 removed push; v4 added sync; v5 added ntfy reminders. */
+const DB_VERSION = 5;
 
 export const STORE = {
   tasks: 'tasks',
@@ -27,6 +28,25 @@ export const SYNC_STORE = {
   versions: 'sync_versions',
   state: 'sync_state',
 } as const;
+
+/** Device-local ledger of reminders published to ntfy. Never synced. */
+export const NOTIFY_STORE = 'ntfy_scheduled';
+
+export interface ScheduledReminderRecord {
+  /** ntfy sequence id; also the IndexedDB key. */
+  id: string;
+  taskId: string;
+  /** Absolute epoch ms the notification should fire. */
+  remindAt: number;
+  /** Content signature used to detect edits without republishing. */
+  fingerprint: string;
+  state: 'scheduled' | 'error';
+  /** Target captured at publish time so topic/token changes can still cancel. */
+  serverUrl: string;
+  topic: string;
+  token: string;
+  updatedAt: number;
+}
 
 export type StoreName = (typeof STORE)[keyof typeof STORE];
 export type EntityKind = 'task' | 'category' | 'project' | 'place' | 'settings';
@@ -90,6 +110,10 @@ export function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(SYNC_STORE.state)) {
         db.createObjectStore(SYNC_STORE.state, { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains(NOTIFY_STORE)) {
+        const notify = db.createObjectStore(NOTIFY_STORE, { keyPath: 'id' });
+        notify.createIndex('byTask', 'taskId');
       }
     };
 
@@ -185,6 +209,7 @@ export function normalizeTask(task: Task): Task {
     tags: task.tags ?? [],
     lane: task.lane ?? '',
     recurrence: task.recurrence ?? null,
+    reminder: task.reminder ?? true,
     completed: task.completed ?? false,
     completedAt: task.completedAt ?? null,
     seriesId: task.seriesId ?? task.id,
@@ -208,6 +233,9 @@ export function normalizeProject(project: Project): Project {
 
 export function normalizeSettings(stored: Partial<Settings> | null | undefined): Settings {
   const value = stored ?? {};
+  const notifications = (value.notifications ?? {}) as Partial<NotificationSettings>;
+  const allDayCount = Number(notifications.allDayCount);
+
   return {
     theme:
       value.theme === 'nordic-dark' || value.theme === 'nordic-light'
@@ -217,6 +245,22 @@ export function normalizeSettings(stored: Partial<Settings> | null | undefined):
     progress: { ...DEFAULT_SETTINGS.progress, ...(value.progress ?? {}) },
     soundEnabled: value.soundEnabled ?? false,
     hapticsEnabled: value.hapticsEnabled ?? true,
+    timezone:
+      typeof value.timezone === 'string' && isValidTimezone(value.timezone)
+        ? value.timezone
+        : deviceTimezone(),
+    notifications: {
+      enabled: notifications.enabled ?? DEFAULT_NOTIFICATIONS.enabled,
+      serverUrl:
+        typeof notifications.serverUrl === 'string' && notifications.serverUrl.trim()
+          ? notifications.serverUrl.trim()
+          : DEFAULT_NOTIFICATIONS.serverUrl,
+      topic: typeof notifications.topic === 'string' ? notifications.topic.trim() : '',
+      token: typeof notifications.token === 'string' ? notifications.token.trim() : '',
+      allDayCount: Number.isFinite(allDayCount)
+        ? Math.min(5, Math.max(1, Math.round(allDayCount)))
+        : DEFAULT_NOTIFICATIONS.allDayCount,
+    },
   };
 }
 
@@ -296,6 +340,30 @@ export const db = {
     },
     put: (settings: Settings) => putValue(STORE.settings, settings, SETTINGS_KEY),
     clear: () => clearStore(STORE.settings),
+  },
+};
+
+/**
+ * Reminder ledger. Deliberately bypasses `emitMutation`: scheduled messages are
+ * a per-device delivery detail, not domain data that should sync.
+ */
+export const scheduledReminders = {
+  async all(): Promise<ScheduledReminderRecord[]> {
+    const database = await openDatabase();
+    const tx = database.transaction(NOTIFY_STORE, 'readonly');
+    return request(tx.objectStore(NOTIFY_STORE).getAll() as IDBRequest<ScheduledReminderRecord[]>);
+  },
+  async put(record: ScheduledReminderRecord): Promise<void> {
+    const database = await openDatabase();
+    const tx = database.transaction(NOTIFY_STORE, 'readwrite');
+    tx.objectStore(NOTIFY_STORE).put(record);
+    await transactionDone(tx);
+  },
+  async remove(id: string): Promise<void> {
+    const database = await openDatabase();
+    const tx = database.transaction(NOTIFY_STORE, 'readwrite');
+    tx.objectStore(NOTIFY_STORE).delete(id);
+    await transactionDone(tx);
   },
 };
 

@@ -69,6 +69,23 @@ export function App() {
     [openTaskId, tasks],
   );
 
+  // Reminder notifications deep-link to `/?task=<id>`. Open it once the task
+  // exists, then drop the parameter so reloads do not reopen the panel.
+  useEffect(() => {
+    if (!ready) return;
+    const params = new URLSearchParams(window.location.search);
+    const taskId = params.get('task');
+    if (!taskId || !tasks.some((task) => task.id === taskId)) return;
+    setOpenTaskId(taskId);
+    params.delete('task');
+    const search = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
+    );
+  }, [ready, tasks]);
+
   // Theme is a data attribute on <html>; all colours come from CSS variables.
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;

@@ -254,3 +254,98 @@ export function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
 }
+
+/* ── Timezones ───────────────────────────────────────────────────────────── */
+
+/** The IANA zone reported by the device, with a UTC fallback. */
+export function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/** True when `timeZone` is an IANA name the browser understands. */
+export function isValidTimezone(timeZone: string): boolean {
+  if (!timeZone) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Milliseconds the zone is ahead of UTC at `timestamp`. Positive east of
+ * Greenwich, negative west.
+ */
+const zoneClockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zoneClockFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = zoneClockFormatters.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  zoneClockFormatters.set(timeZone, formatter);
+  return formatter;
+}
+
+function timezoneOffset(timestamp: number, timeZone: string): number {
+  const parts = zoneClockFormatter(timeZone).formatToParts(new Date(timestamp));
+
+  const pick = (type: string): number => {
+    const value = parts.find((part) => part.type === type)?.value;
+    return value ? Number(value) : 0;
+  };
+
+  const wallClockAsUtc = Date.UTC(
+    pick('year'),
+    pick('month') - 1,
+    pick('day'),
+    pick('hour'),
+    pick('minute'),
+    pick('second'),
+  );
+  return wallClockAsUtc - timestamp;
+}
+
+/**
+ * Converts a wall-clock date (`YYYY-MM-DD`) and time (`HH:mm`) in `timeZone`
+ * to an absolute epoch timestamp. DST gaps resolve forwards and ambiguous
+ * times resolve to the first matching offset.
+ */
+export function zonedDateTimeToUtc(dateISO: string, time: string, timeZone: string): number {
+  const zone = isValidTimezone(timeZone) ? timeZone : deviceTimezone();
+  const [year, month, day] = dateISO.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  const naive = Date.UTC(year, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0, 0, 0);
+
+  const firstOffset = timezoneOffset(naive, zone);
+  let timestamp = naive - firstOffset;
+  const secondOffset = timezoneOffset(timestamp, zone);
+  if (secondOffset !== firstOffset) timestamp = naive - secondOffset;
+  return timestamp;
+}
+
+/** Human-readable clock in a zone, e.g. "Mon, Nov 16, 9:00 AM". */
+export function formatInTimezone(timestamp: number, timeZone: string): string {
+  const zone = isValidTimezone(timeZone) ? timeZone : deviceTimezone();
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+}

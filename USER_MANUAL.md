@@ -277,7 +277,8 @@ one, so your history stays intact.
 Everything lives in **Settings → Data**.
 
 - **Export JSON** downloads a complete snapshot: categories, projects, tags,
-  places, tasks (with subtasks and progress) and settings.
+  places, tasks (with subtasks and progress) and settings — including the ntfy
+  topic and access token, so keep the file private.
 - **Import JSON** restores that snapshot. Import *replaces* the current state, so
   export first if you are unsure.
 - **Reset app** erases all local data. This cannot be undone.
@@ -323,7 +324,59 @@ Importing a JSON backup is blocked while sync is connected. Disconnect first.
 
 ---
 
-## 12. Offline behaviour
+## 12. Notifications (ntfy)
+
+Reminders are delivered through [ntfy](https://ntfy.sh), a small notification
+server with Android, iOS and desktop apps. Tasker does **not** ask for browser
+notification permission and does not use a serverless cron: the app publishes
+scheduled messages to ntfy, and the ntfy app shows them even when Tasker is
+closed.
+
+### Setup
+
+1. Install the ntfy app on the device that should ring. Subscribe to a topic
+   (for example `tasker-8f3k2m`). On the public `ntfy.sh`, use a long random
+   topic — anyone who knows it can read and publish to it.
+2. Open **Settings → Notifications**. Turn on **Enable ntfy reminders**.
+3. Set the **ntfy server**. Use `https://ntfy.sh` or your own server, such as
+   `https://ntfy.example.com`. If the server requires authentication, paste an
+   access token (`tk_…`).
+4. Enter the same **Topic** you subscribed to.
+5. Pick the **Time zone**. It defaults to the device zone and is stored with your
+   settings. Changing it re-computes every reminder.
+6. Choose **All-day reminders**: 1–5 times per day. The times used for each
+   choice are shown under the selector (for example 2× = 09:00 and 18:00).
+7. Press **Send test notification** and confirm it arrives in the ntfy app.
+
+### How reminders behave
+
+- A task **with a time** reminds you at that exact time on its date.
+- A task **with only a date** (or marked **All-day**) reminds you at the
+  configured times. A multi-day all-day task reminds you on each day it spans.
+- Tasks without a date never remind you.
+- Use the **Reminder** switch in a task's detail panel to mute or unmute one task.
+- Completing, deleting, rescheduling or renaming a task updates or cancels its
+  pending notification. The same record is replaced rather than duplicated.
+
+### The two-day window
+
+ntfy accepts scheduled delivery up to three days ahead by default. Tasker
+therefore keeps a rolling **two-day** schedule and refreshes it when the app
+opens, regains focus, comes back online, and every six hours while a tab stays
+open. If you do not open Tasker for more than two days, reminders further out
+will not have been armed yet. A self-hosted ntfy server can raise
+`message-delay-limit`; Tasker still re-arms on launch either way.
+
+### Privacy and backups
+
+The ntfy server sees the notification title and text (project, place, priority,
+date). Use a self-hosted ntfy server or a private topic if that matters. The
+access token lives in IndexedDB, syncs through the encrypted relay, and is
+present in JSON exports — store backups accordingly.
+
+---
+
+## 13. Offline behaviour
 
 - The app shell is cached by `sw.js`, so Tasker opens with no network.
 - All reads and writes go to IndexedDB and work offline.
@@ -337,7 +390,7 @@ its own window and works fully offline.
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
@@ -348,4 +401,8 @@ its own window and works fully offline.
 | Sync says “Could not reach the sync server” | Check the relay URL and TLS certificate; the device must be online. |
 | Sync shows a different Space fingerprint | The passphrases differ. Use the same passphrase on both devices. |
 | Sync card asks to create a space | That passphrase has no data on the relay yet; confirm only if this is the first device. |
+| ntfy test fails with HTTP 401/403 | Add the access token, or allow anonymous write access to the topic on your server. |
+| ntfy test fails with a network error | Check the server URL, TLS certificate and CORS (`allow-origin`) on a self-hosted server. |
+| No reminder arrives | Confirm the ntfy app is subscribed to the same topic, and open Tasker once to arm the two-day schedule. |
+| Reminder arrives at the wrong time | Check **Settings → Notifications → Time zone**; it is independent of the device clock setting. |
 | Lost data | Import your most recent JSON export. |

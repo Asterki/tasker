@@ -96,6 +96,9 @@ export interface Task {
   lane: string;
   recurrence: RecurrenceRule | null;
 
+  /** Whether this task should publish ntfy reminders. Dated tasks default to true. */
+  reminder: boolean;
+
   completed: boolean;
   completedAt: number | null;
   /** Stable id shared by every occurrence generated from one recurring task. */
@@ -152,6 +155,19 @@ export const EMPTY_PROGRESS: Progress = {
   updatedAt: 0,
 };
 
+export interface NotificationSettings {
+  /** Publish reminders at all. */
+  enabled: boolean;
+  /** ntfy base URL, e.g. https://ntfy.sh or https://ntfy.example.com. */
+  serverUrl: string;
+  /** ntfy topic. Treat it as a password; pick something hard to guess. */
+  topic: string;
+  /** Optional ntfy access token (sent as a bearer token). */
+  token: string;
+  /** How many reminders per day for tasks that have a date but no time. */
+  allDayCount: number;
+}
+
 export interface Settings {
   /** Single key/value bag persisted in IndexedDB. */
   theme: 'nordic-light' | 'nordic-dark';
@@ -162,7 +178,19 @@ export interface Settings {
   soundEnabled: boolean;
   /** Vibrates on completion where the device supports it. */
   hapticsEnabled: boolean;
+  /** IANA timezone used to turn task dates/times into absolute reminder instants. */
+  timezone: string;
+  /** ntfy reminder delivery. */
+  notifications: NotificationSettings;
 }
+
+export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
+  enabled: false,
+  serverUrl: 'https://ntfy.sh',
+  topic: '',
+  token: '',
+  allDayCount: 1,
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'nordic-dark',
@@ -185,6 +213,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   soundEnabled: false,
   hapticsEnabled: true,
+  timezone: 'UTC',
+  notifications: { ...DEFAULT_NOTIFICATIONS },
 };
 
 /** Shape of a full JSON backup produced by "Export". */
