@@ -106,6 +106,11 @@ const insertUser = db.prepare(
 );
 const selectUser = db.prepare('SELECT * FROM users WHERE key_hash = ?');
 
+/** Looks up an existing sync space without creating one. */
+export function findUser(keyHash: string): UserRow | null {
+  return (selectUser.get(keyHash) as UserRow | undefined) ?? null;
+}
+
 /** Resolves a bearer key to a user row, creating the row on first contact. */
 export function resolveUser(keyHash: string): UserRow {
   insertUser.run(keyHash, Date.now());

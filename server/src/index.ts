@@ -3,7 +3,8 @@
  *
  * A deliberately small Express service: bearer-key identity, an append-only
  * change log per user, and a snapshot endpoint for new devices. Encrypted
- * payloads are stored as opaque strings.
+ * payloads are stored as opaque strings. `/mcp` optionally lets an MCP client
+ * join the space with the same passphrase; see `src/mcp/`.
  */
 
 import { createHash } from 'node:crypto';
@@ -20,6 +21,7 @@ import {
   type EntityType,
   type UserRow,
 } from './db.js';
+import { MCP_ENABLED, handleMcp, mcpAuth, mcpMethodNotAllowed } from './mcp/index.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const RETENTION_DAYS = Number(process.env.SYNC_RETENTION_DAYS ?? 90);
@@ -27,8 +29,10 @@ const BATCH_LIMIT = 200;
 const MAX_PAYLOAD = 300_000;
 const HLC_PATTERN = /^\d{15}-\d{6}-[A-Za-z0-9-]{6,64}$/;
 
-const allowedOrigins = (process.env.CORS_ORIGINS ?? 'https://tasker.asterki.xyz')
-  .split(',')
+const allowedOrigins = [
+  ...(process.env.CORS_ORIGINS ?? 'https://tasker.asterki.xyz').split(','),
+  ...(process.env.MCP_ORIGINS ?? '').split(','),
+]
   .map((origin) => origin.trim())
   .filter(Boolean);
 
@@ -45,8 +49,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Tasker-Passphrase, Mcp-Session-Id, MCP-Protocol-Version');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 
@@ -97,7 +101,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'tasker-sync' });
+  res.json({ ok: true, service: 'tasker-sync', mcp: MCP_ENABLED });
 });
 
 app.get('/v1/sync/head', authenticate, (req, res) => {
@@ -226,6 +230,23 @@ app.get('/v1/sync/snapshot', authenticate, (req, res) => {
     head: user.head_seq,
   });
 });
+
+if (MCP_ENABLED) {
+  app.post('/mcp', mcpAuth, (req, res) => {
+    void handleMcp(req, res).catch((error: unknown) => {
+      console.error('MCP request failed', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error' },
+          id: null,
+        });
+      }
+    });
+  });
+  app.get('/mcp', mcpAuth, mcpMethodNotAllowed);
+  app.delete('/mcp', mcpAuth, mcpMethodNotAllowed);
+}
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'not_found' });

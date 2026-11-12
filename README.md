@@ -92,6 +92,10 @@ pnpm install
 pnpm dev        # http://localhost:8787
 ```
 
+> Local relay development is tested on Node 20/22. The native
+> `better-sqlite3` binding in this package does not support Node 24; use the
+> Docker image or Node 22 if your default `node` is newer.
+
 Build and run in production:
 
 ```bash
@@ -118,6 +122,62 @@ match.
 
 Losing the passphrase means the sync space cannot be recovered — there is no
 account and no reset. Export a JSON backup as well if the data matters.
+
+### MCP server (models)
+
+The relay can expose a **Streamable HTTP MCP endpoint** so an MCP-capable model
+can read and write the same sync space. It authenticates with the **same sync
+passphrase** you enter on your devices: the relay derives the same keys, verifies
+that the sync space exists, decrypts the change log, and writes encrypted
+changes back with a fresh hybrid logical clock.
+
+- **Endpoint:** `https://<relay-host>/mcp`
+- **Transport:** Streamable HTTP (stateless)
+- **Auth:** `Authorization: Bearer <sync-passphrase>`, or
+  `X-Tasker-Passphrase: <sync-passphrase>` when the passphrase contains
+  characters that confuse a bearer parser.
+
+Example client entry:
+
+```json
+{
+  "mcp": {
+    "tasker": {
+      "type": "remote",
+      "url": "https://tasker-api.asterki.xyz/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR-SYNC-PASSPHRASE"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+Available tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `list_tasks` | Filter by status, project, category, place, priority, date range or text |
+| `get_task` | One task plus its subtasks |
+| `search_tasks` | Search titles, notes and tags |
+| `task_overview` | Counts for today, overdue, upcoming, priorities and projects |
+| `list_projects`, `list_categories`, `list_places` | Workspace structure |
+| `create_project`, `create_category` | Add structure |
+| `create_task`, `update_task` | Create and edit tasks, including recurrence |
+| `complete_task` | Complete/reopen; recurring tasks advance to their next occurrence |
+| `delete_task` | Delete a task and its subtasks on every device |
+
+The endpoint is enabled by default. Set `MCP_ENABLED=false` to turn it off, or
+`MCP_ORIGINS=https://some-browser-client.example` to allow browser-originated
+clients in addition to `CORS_ORIGINS`. Auth is rate-limited, but the passphrase
+is still a bearer secret: anyone who has it can read and modify the whole sync
+space.
+
+> **Security trade-off:** unlike the sync relay, the MCP endpoint must decrypt
+> task data to answer tool calls, so plaintext exists in the relay process while
+> requests are served. Run it only on a host you trust, keep it behind TLS, and
+> use a long passphrase.
 
 ### Notifications with ntfy
 
@@ -161,6 +221,7 @@ tasker/
 ├── server/                    optional sync relay (Express + SQLite)
 │   ├── src/db.ts              schema, change log, snapshot queries
 │   ├── src/index.ts           HTTP API, auth, CORS, rate limiting
+│   ├── src/mcp/               Streamable HTTP MCP server (passphrase auth)
 │   └── Dockerfile
 ├── src/
 │   ├── components/            UI building blocks (rail, sheets, rows, tree, editor…)
