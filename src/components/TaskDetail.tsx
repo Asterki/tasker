@@ -6,7 +6,7 @@
 import { useMemo } from 'react';
 import { FiX } from 'react-icons/fi';
 import type { Priority, Task } from '../domain/types';
-import { formatDate, formatTime, spanLength, todayISO } from '../domain/date';
+import { formatDate, formatTime, spanLength, addDays, todayISO } from '../domain/date';
 import { RecurrenceEditor } from './RecurrenceEditor';
 import { TaskTree } from './TaskTree';
 import { QuickAdd } from './QuickAdd';
@@ -128,213 +128,236 @@ export function TaskDetail({ task, onClose, onOpenTask }: TaskDetailProps) {
         aria-label="Task title"
       />
 
-      <textarea
-        className="detail__notes input"
-        rows={3}
-        value={task.notes}
-        onChange={(event) => patch({ notes: event.target.value })}
-        placeholder="Notes, links, context…"
-        aria-label="Task notes"
-      />
+      <section className="detail__section">
+        <header className="detail__section-header">
+          <span className="detail__section-title">Schedule</span>
+        </header>
+        <div className="detail__grid">
+          <label className="field">
+            <span className="field__label">Start date</span>
+            <input
+              className="input"
+              type="date"
+              value={task.date ?? ''}
+              onChange={(event) => patchStart(event.target.value || null, task.allDay ? null : task.time)}
+            />
+          </label>
 
-      <div className="detail__grid">
-        <label className="field">
-          <span className="field__label">Project</span>
-          <select
-            className="input"
-            value={task.projectId ?? ''}
-            onChange={(event) => patch({ projectId: event.target.value || null, tags: [] })}
-          >
-            <option value="">No project</option>
-            {grouped.map((group) => (
-              <optgroup key={group.key} label={group.label}>
-                {group.projects.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+          <label className="field">
+            <span className="field__label">End date {days > 1 ? `· ${days} days` : ''}</span>
+            <input
+              className="input"
+              type="date"
+              min={task.date ?? undefined}
+              value={task.endDate ?? task.date ?? ''}
+              disabled={!task.date}
+              onChange={(event) => patchEnd(event.target.value || null)}
+            />
+          </label>
 
-        <label className="field">
-          <span className="field__label">Priority</span>
-          <select
-            className="input"
-            value={task.priority}
-            onChange={(event) => patch({ priority: Number(event.target.value) as Priority })}
-          >
-            {PRIORITIES.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="field detail__field--wide">
+            <span className="field__label">Time</span>
+            <div className="field__row detail__time-row">
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={task.allDay}
+                  onChange={(event) =>
+                    patch({ allDay: event.target.checked, time: event.target.checked ? null : task.time, endTime: event.target.checked ? null : task.endTime })
+                  }
+                />
+                <span>All-day</span>
+              </label>
+              <input
+                className="input detail__time-input"
+                type="time"
+                value={task.time ?? ''}
+                disabled={task.allDay}
+                aria-label="Start time"
+                onChange={(event) => patch({ time: event.target.value || null, allDay: false })}
+              />
+              <span className="field__suffix">to</span>
+              <input
+                className="input detail__time-input"
+                type="time"
+                value={task.endTime ?? ''}
+                disabled={task.allDay}
+                aria-label="End time"
+                onChange={(event) => patchEndTime(event.target.value || null)}
+              />
+            </div>
+          </div>
 
-        <label className="field">
-          <span className="field__label">Place / context</span>
-          <input
-            className="input"
-            list="tasker-places"
-            value={task.place ?? ''}
-            onChange={(event) => patch({ place: event.target.value || null })}
-            placeholder="@work, @home…"
-          />
-          <datalist id="tasker-places">
-            {places.map((place) => (
-              <option key={place.id} value={place.name} />
-            ))}
-          </datalist>
-        </label>
-
-        <label className="field">
-          <span className="field__label">Start date</span>
-          <input
-            className="input"
-            type="date"
-            value={task.date ?? ''}
-            onChange={(event) => patchStart(event.target.value || null, task.allDay ? null : task.time)}
-          />
-        </label>
-
-        <label className="field">
-          <span className="field__label">End date {days > 1 ? `· ${days} days` : ''}</span>
-          <input
-            className="input"
-            type="date"
-            min={task.date ?? undefined}
-            value={task.endDate ?? task.date ?? ''}
-            disabled={!task.date}
-            onChange={(event) => patchEnd(event.target.value || null)}
-          />
-        </label>
-
-        <div className="field">
-          <span className="field__label">Time</span>
-          <div className="field__row">
-            <label className="switch">
+          <div className="field detail__field--wide">
+            <span className="field__label">Reminder</span>
+            <label className="switch detail__switch">
               <input
                 type="checkbox"
-                checked={task.allDay}
-                onChange={(event) =>
-                  patch({ allDay: event.target.checked, time: event.target.checked ? null : task.time, endTime: event.target.checked ? null : task.endTime })
-                }
+                checked={task.reminder !== false}
+                disabled={!task.date}
+                onChange={(event) => patch({ reminder: event.target.checked })}
               />
-              <span>All-day</span>
+              <span className="detail__switch-text">
+                {!task.date
+                  ? 'Add a date to schedule a reminder'
+                  : task.allDay
+                    ? `${settings.notifications.allDayCount}× per day · ${settings.timezone}`
+                    : task.time
+                      ? `At ${formatTime(task.time)} · ${settings.timezone}`
+                      : `At task time · ${settings.timezone}`}
+                {task.date && !settings.notifications.enabled ? ' · enable ntfy in Settings' : ''}
+              </span>
             </label>
-            <input
-              className="input"
-              type="time"
-              value={task.time ?? ''}
-              disabled={task.allDay}
-              aria-label="Start time"
-              onChange={(event) => patch({ time: event.target.value || null, allDay: false })}
-            />
-            <span className="field__suffix">to</span>
-            <input
-              className="input"
-              type="time"
-              value={task.endTime ?? ''}
-              disabled={task.allDay}
-              aria-label="End time"
-              onChange={(event) => patchEndTime(event.target.value || null)}
-            />
           </div>
         </div>
+      </section>
 
-        <div className="field">
-          <span className="field__label">Reminder</span>
-          <label className="switch">
+      <section className="detail__section">
+        <header className="detail__section-header">
+          <span className="detail__section-title">Details</span>
+        </header>
+        <div className="detail__grid">
+          <label className="field">
+            <span className="field__label">Project</span>
+            <select
+              className="input"
+              value={task.projectId ?? ''}
+              onChange={(event) => patch({ projectId: event.target.value || null, tags: [] })}
+            >
+              <option value="">No project</option>
+              {grouped.map((group) => (
+                <optgroup key={group.key} label={group.label}>
+                  {group.projects.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span className="field__label">Priority</span>
+            <select
+              className="input"
+              value={task.priority}
+              onChange={(event) => patch({ priority: Number(event.target.value) as Priority })}
+            >
+              {PRIORITIES.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span className="field__label">Place / context</span>
             <input
-              type="checkbox"
-              checked={task.reminder !== false}
-              disabled={!task.date}
-              onChange={(event) => patch({ reminder: event.target.checked })}
+              className="input"
+              list="tasker-places"
+              value={task.place ?? ''}
+              onChange={(event) => patch({ place: event.target.value || null })}
+              placeholder="@work, @home…"
             />
-            <span>
-              {!task.date
-                ? 'Add a date to schedule a reminder'
-                : task.allDay
-                  ? `${settings.notifications.allDayCount}× per day · ${settings.timezone}`
-                  : task.time
-                    ? `At ${formatTime(task.time)} · ${settings.timezone}`
-                    : `At task time · ${settings.timezone}`}
-              {task.date && !settings.notifications.enabled ? ' · enable ntfy in Settings' : ''}
-            </span>
+            <datalist id="tasker-places">
+              {places.map((place) => (
+                <option key={place.id} value={place.name} />
+              ))}
+            </datalist>
+          </label>
+
+          <label className="field">
+            <span className="field__label">Roadmap lane</span>
+            <input
+              className="input"
+              list="tasker-lanes"
+              value={task.lane}
+              placeholder="e.g. Design, Build, Ship"
+              onChange={(event) => patch({ lane: event.target.value })}
+            />
+            <datalist id="tasker-lanes">
+              <option value="Backlog" />
+              <option value="In progress" />
+              <option value="Review" />
+              <option value="Done" />
+            </datalist>
           </label>
         </div>
+      </section>
 
-        <label className="field">
-          <span className="field__label">Roadmap lane</span>
-          <input
-            className="input"
-            list="tasker-lanes"
-            value={task.lane}
-            placeholder="e.g. Design, Build, Ship"
-            onChange={(event) => patch({ lane: event.target.value })}
-          />
-          <datalist id="tasker-lanes">
-            <option value="Backlog" />
-            <option value="In progress" />
-            <option value="Review" />
-            <option value="Done" />
-          </datalist>
-        </label>
-      </div>
+      <section className="detail__section">
+        <header className="detail__section-header">
+          <span className="detail__section-title">Description</span>
+        </header>
+        <textarea
+          className="detail__notes input"
+          rows={3}
+          value={task.notes}
+          onChange={(event) => patch({ notes: event.target.value })}
+          placeholder="Notes, links, context…"
+          aria-label="Task notes"
+        />
+      </section>
 
       {project && (
-        <div className="field">
-          <span className="field__label">
-            {project.name} tags
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                const name = window.prompt('New tag name');
-                if (name) addTag(project.id, name);
-              }}
-            >
-              + new tag
-            </button>
-          </span>
-          <div className="tag-picker">
-            {project.tags.length === 0 && <span className="muted">No tags in this project yet.</span>}
-            {project.tags.map((tag) => {
-              const active = task.tags.includes(tag.name);
-              return (
-                <span key={tag.id} className="tag-pill">
-                  <button
-                    type="button"
-                    className={`chip chip--toggle${active ? ' chip--on' : ''}`}
-                    onClick={() => toggleTag(tag.name)}
-                    aria-pressed={active}
-                  >
-                    <span className="dot" style={{ background: tag.color }} />
-                    {tag.name}
-                  </button>
-                  <button
-                    type="button"
-                    className="tag-pill__remove"
-                    onClick={() => removeTag(project.id, tag.id)}
-                    aria-label={`Delete tag ${tag.name}`}
-                  >
-                    <FiX aria-hidden="true" />
-                  </button>
-                </span>
-              );
-            })}
+        <section className="detail__section">
+          <header className="detail__section-header">
+            <span className="detail__section-title">Tags</span>
+            <span className="detail__section-note">{project.name}</span>
+          </header>
+          <div className="field">
+            <div className="field__row">
+              <span className="field__label">Project tags</span>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  const name = window.prompt('New tag name');
+                  if (name) addTag(project.id, name);
+                }}
+              >
+                + new tag
+              </button>
+            </div>
+            <div className="tag-picker">
+              {project.tags.length === 0 && <span className="muted">No tags in this project yet.</span>}
+              {project.tags.map((tag) => {
+                const active = task.tags.includes(tag.name);
+                return (
+                  <span key={tag.id} className="tag-pill">
+                    <button
+                      type="button"
+                      className={`chip chip--toggle${active ? ' chip--on' : ''}`}
+                      onClick={() => toggleTag(tag.name)}
+                      aria-pressed={active}
+                    >
+                      <span className="dot" style={{ background: tag.color }} />
+                      {tag.name}
+                    </button>
+                    <button
+                      type="button"
+                      className="tag-pill__remove"
+                      onClick={() => removeTag(project.id, tag.id)}
+                      aria-label={`Delete tag ${tag.name}`}
+                    >
+                      <FiX aria-hidden="true" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </section>
       )}
 
       <RecurrenceEditor value={task.recurrence} dateISO={task.date} onChange={(rule) => patch({ recurrence: rule })} />
 
-      <section className="detail__subtasks">
-        <header className="group__header">
-          <span className="group__title">Subtasks</span>
-          <span className="group__count">{children.length}</span>
+      <section className="detail__subtasks detail__section">
+        <header className="detail__section-header">
+          <span className="detail__section-title">Subtasks</span>
+          <span className="detail__section-note">{children.length}</span>
         </header>
 
         <QuickAdd
@@ -382,6 +405,13 @@ export function TaskDetail({ task, onClose, onOpenTask }: TaskDetailProps) {
         </button>
         <button type="button" className="button" onClick={() => patch({ date: todayISO(), endDate: todayISO() })}>
           Schedule today
+        </button>
+        <button
+          type="button"
+          className="button"
+          onClick={() => patch({ date: addDays(todayISO(), 1), endDate: addDays(todayISO(), 1) })}
+        >
+          Schedule tomorrow
         </button>
         <button
           type="button"
